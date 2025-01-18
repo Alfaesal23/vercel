@@ -1,12 +1,19 @@
 const path = require('path');
 const fs = require('fs-extra');
-const runBuildLambda = require('../../../test/lib/run-build-lambda');
+const builder = require('../');
+const { createRunBuildLambda } = require('../../../test/lib/run-build-lambda');
+
+const runBuildLambda = createRunBuildLambda(builder);
 
 const FOUR_MINUTES = 240000;
+
+const warnSpy = jest.spyOn(console, 'warn');
 
 beforeAll(() => {
   process.env.VERCEL_ANALYTICS_ID = 'test';
 });
+
+beforeEach(() => jest.clearAllMocks());
 
 it(
   'Should build Gatsby without any configuration',
@@ -28,13 +35,13 @@ it(
       .toMatchInlineSnapshot(`
       Object {
         "plugins": Array [
-          Object {
-            "options": Object {},
-            "resolve": "@vercel/gatsby-plugin-vercel-analytics",
-          },
+          "@vercel/gatsby-plugin-vercel-analytics"
         ],
       }
     `);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Vercel Speed Insights auto-injection is deprecated in favor of @vercel/speed-insights package. Learn more: https://vercel.link/upgrate-to-speed-insights-package'
+    );
   },
   FOUR_MINUTES
 );
@@ -59,10 +66,7 @@ it(
       .toMatchInlineSnapshot(`
       Object {
         "plugins": Array [
-          Object {
-            "options": Object {},
-            "resolve": "@vercel/gatsby-plugin-vercel-analytics",
-          },
+          "@vercel/gatsby-plugin-vercel-analytics"
         ],
         "siteMetadata": Object {
           "author": "@gatsbyjs",
@@ -96,10 +100,7 @@ it(
       Object {
         "plugins": Array [
           "gatsby-plugin-react-helmet",
-          Object {
-            "options": Object {},
-            "resolve": "@vercel/gatsby-plugin-vercel-analytics",
-          },
+          "@vercel/gatsby-plugin-vercel-analytics"
         ],
         "siteMetadata": Object {
           "author": "@gatsbyjs",
@@ -202,10 +203,7 @@ it(
       Object {
         "plugins": Array [
           "gatsby-plugin-react-helmet",
-          Object {
-            "options": Object {},
-            "resolve": "@vercel/gatsby-plugin-vercel-analytics",
-          },
+          "@vercel/gatsby-plugin-vercel-analytics"
         ],
         "siteMetadata": Object {
           "author": "@gatsbyjs",
@@ -241,10 +239,7 @@ it(
             },
             "resolve": "gatsby-plugin-zeit-now",
           },
-          Object {
-            "options": Object {},
-            "resolve": "@vercel/gatsby-plugin-vercel-analytics",
-          },
+          "@vercel/gatsby-plugin-vercel-analytics"
         ],
         "siteMetadata": Object {
           "author": "@gatsbyjs",
@@ -274,10 +269,8 @@ it(
       Object {
         "default": Object {
           "plugins": Array [
-            Object {
-              "options": Object {},
-              "resolve": "@vercel/gatsby-plugin-vercel-analytics",
-            },
+            "@vercel/gatsby-plugin-vercel-builder",
+            "@vercel/gatsby-plugin-vercel-analytics",
           ],
           "siteMetadata": Object {
             "siteUrl": "https://gatsby-typescript-config.vercel.app",
@@ -311,7 +304,6 @@ const preferDefault = (m) => (m && m.default) || m;
 
 const vercelConfig = Object.assign(
   {},
-
   // https://github.com/gatsbyjs/gatsby/blob/a6ecfb2b01d761e8a3612b8ea132c698659923d9/packages/gatsby/src/services/initialize.ts#L113-L117
   preferDefault(userConfig)
 );
@@ -319,17 +311,15 @@ if (!vercelConfig.plugins) {
   vercelConfig.plugins = [];
 }
 
-const hasPlugin = vercelConfig.plugins.find(
-  (p) =>
-    p && (p === "@vercel/gatsby-plugin-vercel-analytics" || p.resolve === "@vercel/gatsby-plugin-vercel-analytics")
-);
+for (const plugin of ["@vercel/gatsby-plugin-vercel-builder","@vercel/gatsby-plugin-vercel-analytics"]) {
+  const hasPlugin = vercelConfig.plugins.find(
+    (p) => p && (p === plugin || p.resolve === plugin)
+  );
 
-if (!hasPlugin) {
-  vercelConfig.plugins = vercelConfig.plugins.slice();
-  vercelConfig.plugins.push({
-    resolve: "@vercel/gatsby-plugin-vercel-analytics",
-    options: {},
-  });
+  if (!hasPlugin) {
+    vercelConfig.plugins = vercelConfig.plugins.slice();
+    vercelConfig.plugins.push(plugin);
+  }
 }
 
 export default vercelConfig;
@@ -337,6 +327,60 @@ export default vercelConfig;
   },
   FOUR_MINUTES
 );
+
+describe('when @vercel/speed-insights is present', () => {
+  it(
+    'Should build Gatsby without the "@vercel/gatsby-plugin-vercel-analytics" plugin',
+    async () => {
+      const { workPath } = await runBuildLambda(
+        path.join(
+          __dirname,
+          'build-fixtures/15-gatsby-default-with-speed-insights-package'
+        )
+      );
+
+      const contents = await fs.readdir(workPath);
+
+      expect(contents.some(name => name === 'gatsby-config.js')).toBeTruthy();
+
+      expect(require(path.join(workPath, 'gatsby-config.js')))
+        .toMatchInlineSnapshot(`
+      Object {
+        "plugins": Array [],
+      }
+    `);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'Vercel Speed Insights auto-injection is deprecated in favor of @vercel/speed-insights package. Learn more: https://vercel.link/upgrate-to-speed-insights-package'
+      );
+    },
+    FOUR_MINUTES
+  );
+
+  it(
+    'Should build Nuxt.js without the "@nuxtjs/web-vitals" plugin',
+    async () => {
+      const fixture = path.join(
+        __dirname,
+        'build-fixtures/16-nuxtjs-default-with-speed-insights-package'
+      );
+      const { workPath } = await runBuildLambda(fixture);
+
+      // The `.nuxtrc` file should not contain the plugin in `modules[]`
+      const rc = await fs.readFile(path.join(workPath, '.nuxtrc'), 'utf8');
+      expect(rc.includes('modules[]=@nuxtjs/web-vitals')).toBeFalsy();
+
+      // The `package.json` file should not have the plugin listed as a dependency
+      const pkg = require(path.join(workPath, 'package.json'));
+      expect(pkg.dependencies['@nuxtjs/web-vitals']).toBe(undefined);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'Vercel Speed Insights auto-injection is deprecated in favor of @vercel/speed-insights package. Learn more: https://vercel.link/upgrate-to-speed-insights-package'
+      );
+    },
+    FOUR_MINUTES
+  );
+});
 
 it(
   'Should build Nuxt.js with "@nuxtjs/web-vitals" plugin',
@@ -351,6 +395,10 @@ it(
     // The `package.json` file should have the plugin listed as a dependency
     const pkg = require(path.join(workPath, 'package.json'));
     expect(pkg.dependencies['@nuxtjs/web-vitals']).toBe('latest');
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Vercel Speed Insights auto-injection is deprecated in favor of @vercel/speed-insights package. Learn more: https://vercel.link/upgrate-to-speed-insights-package'
+    );
   },
   FOUR_MINUTES
 );

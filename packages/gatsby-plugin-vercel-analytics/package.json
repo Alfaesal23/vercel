@@ -1,15 +1,13 @@
 {
   "name": "@vercel/gatsby-plugin-vercel-analytics",
-  "version": "1.0.4",
-  "description": "Track Core Web Vitals in Gatsby projects with Vercel Analytics.",
+  "version": "1.0.11",
+  "description": "Track Core Web Vitals in Gatsby projects with Vercel Speed Insights.",
   "main": "index.js",
   "files": [
     "gatsby-browser.js",
     "web-vitals.js"
   ],
-  "scripts": {},
   "dependencies": {
-    "@babel/runtime": "7.12.1",
     "web-vitals": "0.2.4"
   },
   "repository": {
@@ -29,5 +27,8 @@
     "lcp",
     "ttfb"
   ],
-  "license": "MIT"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "jest-junit": "16.0.0"
+  }
 }
